@@ -1,25 +1,25 @@
 /* =========================================================
-   AI Chat — fixed version
-   Handles: CORS, timeouts, retries, proxy fallback, parsing
+   AI Chat — CORS-safe version
    ========================================================= */
 
 const API_BASE = "https://anshapi.vercel.app/api/deepseek";
 const API_KEY  = "ansh";
 const MODEL    = "deepseek-v4-flash";
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 25000;
 
-// CORS proxy fallbacks (tried in order if direct fetch fails)
+// Proxy list — tried in order until one works
 const PROXIES = [
-  (u) => u,                                                    // direct
-  (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u), // proxy 1
-  (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u), // proxy 2
+  (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+  (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  (u) => "https://thingproxy.freeboard.io/fetch/" + u,
+  (u) => "https://cors.eu.org/" + u,
 ];
 
-const form   = document.getElementById("chat-form");
-const input  = document.getElementById("prompt-input");
-const btn    = document.getElementById("send-btn");
-const chat   = document.getElementById("chat");
-const status = document.getElementById("status");
+const form     = document.getElementById("chat-form");
+const input    = document.getElementById("prompt-input");
+const btn      = document.getElementById("send-btn");
+const chat     = document.getElementById("chat");
+const statusEl = document.getElementById("status");
 const clearBtn = document.getElementById("clear-btn");
 
 /* ---------- helpers ---------- */
@@ -33,9 +33,9 @@ function addMessage(text, kind = "bot") {
 }
 
 function setStatus(msg) {
-  if (!msg) { status.hidden = true; status.textContent = ""; return; }
-  status.textContent = msg;
-  status.hidden = false;
+  if (!msg) { statusEl.hidden = true; statusEl.textContent = ""; return; }
+  statusEl.textContent = msg;
+  statusEl.hidden = false;
 }
 
 function setLoading(loading) {
@@ -44,29 +44,31 @@ function setLoading(loading) {
   btn.textContent = loading ? "…" : "Send";
 }
 
-/* fetch with timeout + abort */
 async function fetchWithTimeout(url, ms) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
+    return await fetch(url, { signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
   }
 }
 
-/* try direct then proxies */
+/* Try each proxy until one returns valid JSON */
 async function fetchWithFallback(targetUrl) {
   let lastErr;
   for (let i = 0; i < PROXIES.length; i++) {
     const url = PROXIES[i](targetUrl);
     try {
+      console.log(`[AI] attempt ${i + 1}:`, url);
       const res = await fetchWithTimeout(url, TIMEOUT_MS);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
-      // Some proxies return HTML error pages — validate JSON
-      try { return JSON.parse(text); }
-      catch { throw new Error("Non-JSON response"); }
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error("Non-JSON response");
+      }
     } catch (e) {
       lastErr = e;
       console.warn(`[AI] attempt ${i + 1} failed:`, e.message);
@@ -75,7 +77,7 @@ async function fetchWithFallback(targetUrl) {
   throw lastErr || new Error("All attempts failed");
 }
 
-/* ---------- main handler ---------- */
+/* ---------- submit ---------- */
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   setStatus("");
@@ -99,14 +101,12 @@ form.addEventListener("submit", async (e) => {
 
     typing.remove();
 
-    // Normalize response shape (this endpoint wraps data twice)
-    const payload   = data?.data ?? data;
-    const reply     = payload?.response ?? payload?.message ?? null;
-    const okFlag    = data?.status === true || payload?.status === "success";
+    const payload = data?.data ?? data;
+    const reply   = payload?.response ?? payload?.message ?? null;
+    const ok      = data?.status === true || payload?.status === "success";
 
-    if (!okFlag || !reply) {
-      const errMsg = data?.error || payload?.error || "Empty response from AI.";
-      addMessage(errMsg, "error");
+    if (!ok || !reply) {
+      addMessage(data?.error || payload?.error || "Empty response from AI.", "error");
       return;
     }
 
@@ -116,8 +116,8 @@ form.addEventListener("submit", async (e) => {
     typing.remove();
     const msg =
       err.name === "AbortError"
-        ? "Request timed out. The AI server is slow or unreachable."
-        : `Network error: ${err.message}. The AI endpoint may be down.`;
+        ? "Request timed out. Try again."
+        : `Network error: ${err.message}. The AI proxy may be slow or down.`;
     addMessage(msg, "error");
   } finally {
     setLoading(false);
@@ -125,7 +125,7 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-/* ---------- clear chat ---------- */
+/* ---------- clear ---------- */
 clearBtn.addEventListener("click", () => {
   chat.innerHTML = "";
   addMessage("Chat cleared. Ask me anything 👋", "bot");
