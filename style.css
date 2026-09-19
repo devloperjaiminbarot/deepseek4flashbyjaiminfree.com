@@ -23,16 +23,27 @@ body {
   height: min(85vh, 720px);
 }
 
-h1 {
-  margin: 0 0 .25rem;
-  font-size: 1.5rem;
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  gap: .5rem;
 }
 
-.subtitle {
-  margin: 0 0 1rem;
+h1 { margin: 0 0 .15rem; font-size: 1.5rem; }
+.subtitle { margin: 0; color: #6b7280; font-size: .9rem; }
+
+.ghost {
+  background: transparent;
   color: #6b7280;
-  font-size: .9rem;
+  border: 1px solid #e5e7eb;
+  padding: .4rem .8rem;
+  font-size: .8rem;
+  border-radius: 8px;
+  cursor: pointer;
 }
+.ghost:hover { background: #f3f4f6; color: #111827; }
 
 .chat {
   flex: 1;
@@ -44,17 +55,18 @@ h1 {
   margin-bottom: 1rem;
   display: flex;
   flex-direction: column;
-  gap: .75rem;
+  gap: .65rem;
 }
 
 .msg {
-  max-width: 80%;
+  max-width: 82%;
   padding: .65rem .9rem;
   border-radius: 12px;
   font-size: .94rem;
-  line-height: 1.45;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
   animation: fadeUp 180ms ease both;
 }
 
@@ -78,6 +90,7 @@ h1 {
   background: #fee2e2;
   color: #991b1b;
   border: 1px solid #fecaca;
+  font-size: .88rem;
 }
 
 .msg.typing::after {
@@ -97,13 +110,9 @@ input {
   border: 1px solid #d1d5db;
   border-radius: 8px;
 }
+input:focus { outline: 2px solid #2563eb; border-color: transparent; }
 
-input:focus {
-  outline: 2px solid #2563eb;
-  border-color: transparent;
-}
-
-button {
+button[type="submit"] {
   padding: .75rem 1.25rem;
   font-size: 1rem;
   background: #2563eb;
@@ -113,31 +122,27 @@ button {
   cursor: pointer;
   font-weight: 600;
 }
-
-button:hover:not(:disabled) { background: #1d4ed8; }
-button:disabled { background: #93c5fd; cursor: not-allowed; }
+button[type="submit"]:hover:not(:disabled) { background: #1d4ed8; }
+button[type="submit"]:disabled { background: #93c5fd; cursor: not-allowed; }
 
 .status {
   margin-top: .75rem;
   padding: .6rem .9rem;
   border-radius: 8px;
   font-size: .85rem;
+  background: #fee2e2;
+  color: #991b1b;
 }
-
-.status.error { background: #fee2e2; color: #991b1b; }
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-
-@keyframes blink {
-  50% { opacity: 0; }
-}
+@keyframes blink { 50% { opacity: 0; } }
 
 @media (max-width: 480px) {
   .container { height: 92vh; padding: 1rem; }
   .msg { max-width: 90%; }
   form { flex-direction: column; }
-  button { width: 100%; }
+  button[type="submit"] { width: 100%; }
 }
