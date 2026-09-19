@@ -1,19 +1,28 @@
-// DeepSeek AI Chat
+/* =========================================================
+   AI Chat — fixed version
+   Handles: CORS, timeouts, retries, proxy fallback, parsing
+   ========================================================= */
+
 const API_BASE = "https://anshapi.vercel.app/api/deepseek";
 const API_KEY  = "ansh";
 const MODEL    = "deepseek-v4-flash";
+const TIMEOUT_MS = 20000;
+
+// CORS proxy fallbacks (tried in order if direct fetch fails)
+const PROXIES = [
+  (u) => u,                                                    // direct
+  (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u), // proxy 1
+  (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u), // proxy 2
+];
 
 const form   = document.getElementById("chat-form");
 const input  = document.getElementById("prompt-input");
 const btn    = document.getElementById("send-btn");
 const chat   = document.getElementById("chat");
 const status = document.getElementById("status");
+const clearBtn = document.getElementById("clear-btn");
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
-}
-
+/* ---------- helpers ---------- */
 function addMessage(text, kind = "bot") {
   const el = document.createElement("div");
   el.className = `msg ${kind}`;
@@ -23,10 +32,9 @@ function addMessage(text, kind = "bot") {
   return el;
 }
 
-function setStatus(msg, kind = "error") {
-  if (!msg) { status.hidden = true; return; }
+function setStatus(msg) {
+  if (!msg) { status.hidden = true; status.textContent = ""; return; }
   status.textContent = msg;
-  status.className = `status ${kind}`;
   status.hidden = false;
 }
 
@@ -36,6 +44,38 @@ function setLoading(loading) {
   btn.textContent = loading ? "…" : "Send";
 }
 
+/* fetch with timeout + abort */
+async function fetchWithTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* try direct then proxies */
+async function fetchWithFallback(targetUrl) {
+  let lastErr;
+  for (let i = 0; i < PROXIES.length; i++) {
+    const url = PROXIES[i](targetUrl);
+    try {
+      const res = await fetchWithTimeout(url, TIMEOUT_MS);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      // Some proxies return HTML error pages — validate JSON
+      try { return JSON.parse(text); }
+      catch { throw new Error("Non-JSON response"); }
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[AI] attempt ${i + 1} failed:`, e.message);
+    }
+  }
+  throw lastErr || new Error("All attempts failed");
+}
+
+/* ---------- main handler ---------- */
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   setStatus("");
@@ -47,34 +87,49 @@ form.addEventListener("submit", async (e) => {
   input.value = "";
   setLoading(true);
 
-  // Show animated "typing" bubble
   const typing = addMessage("Thinking", "bot typing");
 
   try {
-    const url = `${API_BASE}?key=${encodeURIComponent(API_KEY)}` +
-                `&prompt=${encodeURIComponent(prompt)}` +
-                `&model=${encodeURIComponent(MODEL)}`;
+    const target =
+      `${API_BASE}?key=${encodeURIComponent(API_KEY)}` +
+      `&prompt=${encodeURIComponent(prompt)}` +
+      `&model=${encodeURIComponent(MODEL)}`;
 
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await fetchWithFallback(target);
 
     typing.remove();
 
-    if (!res.ok || !data.status || data.data?.status !== "success") {
-      addMessage(data.error || data.message || "Something went wrong. Try again.", "error");
+    // Normalize response shape (this endpoint wraps data twice)
+    const payload   = data?.data ?? data;
+    const reply     = payload?.response ?? payload?.message ?? null;
+    const okFlag    = data?.status === true || payload?.status === "success";
+
+    if (!okFlag || !reply) {
+      const errMsg = data?.error || payload?.error || "Empty response from AI.";
+      addMessage(errMsg, "error");
       return;
     }
 
-    addMessage(data.data.response || "(empty response)", "bot");
+    addMessage(reply, "bot");
 
   } catch (err) {
     typing.remove();
-    addMessage(`Network error: ${err.message}`, "error");
+    const msg =
+      err.name === "AbortError"
+        ? "Request timed out. The AI server is slow or unreachable."
+        : `Network error: ${err.message}. The AI endpoint may be down.`;
+    addMessage(msg, "error");
   } finally {
     setLoading(false);
     input.focus();
   }
 });
 
-// Greet on load
+/* ---------- clear chat ---------- */
+clearBtn.addEventListener("click", () => {
+  chat.innerHTML = "";
+  addMessage("Chat cleared. Ask me anything 👋", "bot");
+});
+
+/* ---------- greet ---------- */
 addMessage("Hi! Ask me anything 👋", "bot");
